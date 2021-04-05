@@ -8,7 +8,7 @@ import (
 )
 
 // func ReadFromFile(fname string) error {
-func ReadFromFile(fname string, fn func(fname string) error) error {
+func ReadFromFile(fname string, fn func(fname, tab string) error) error {
 	dat, err := os.ReadFile(fname)
 	if err != nil {
 		return err
@@ -16,14 +16,15 @@ func ReadFromFile(fname string, fn func(fname string) error) error {
 	hosts_list := strings.Split(string(dat), "\n")
 	for _, hsl := range hosts_list {
 		// TODO добавление в Redis
-		if err = fn(hsl); err != nil {
+		tab := filepath.Base(fname)
+		if err = fn(hsl, tab); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func LoadDirectory(dirpath string, fn func(fname string) error) error {
+func LoadDirectory(dirpath string, fn func(fname, tab string) error) error {
 	err := filepath.Walk(dirpath,
 		func(path string, info os.FileInfo, err error) error {
 			if err != nil {
@@ -33,6 +34,8 @@ func LoadDirectory(dirpath string, fn func(fname string) error) error {
 				// чтение файла
 				// fmt.Println(path, info.Size(), s)
 				fmt.Println("Reading file ", path)
+				// tab := filepath.Dir(path)
+				// fmt.Println("DIR ", tab)
 				if err = ReadFromFile(path, fn); err != nil {
 					return err
 				}

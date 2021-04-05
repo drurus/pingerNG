@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"sync"
 
 	"github.com/go-redis/redis/v8"
 )
@@ -32,6 +33,11 @@ type Host struct {
 type Hosts struct {
 	Hst []Host
 }
+
+// type Hosts struct {
+// 	Data []Host `json:"data"`
+// 	Err  string `json:"err"`
+// }
 
 // ToStrings выводит структуру Host как []string
 func (h *Host) ToStrings() []string {
@@ -73,6 +79,27 @@ func (h *Host) AddRecordDB() error {
 	} else {
 		if !b {
 			r := Rdb.HSet(ctx, (*h).Name, h.ToStrings())
+			if r.Err() != nil {
+				return r.Err()
+			}
+		}
+	}
+	return nil
+}
+
+func (h *Host) UpdateRecordDB() error {
+	var mtx sync.RWMutex
+	r := Rdb.HExists(ctx, (*h).Name, "Name")
+	if r.Err() != nil {
+		return r.Err()
+	}
+	if b, err := r.Result(); err != nil {
+		return r.Err()
+	} else {
+		if b {
+			mtx.RLock()
+			r := Rdb.HSet(ctx, (*h).Name, h.ToStrings())
+			mtx.RUnlock()
 			if r.Err() != nil {
 				return r.Err()
 			}
