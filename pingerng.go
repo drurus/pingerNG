@@ -107,7 +107,17 @@ func startPing() {
 func main() {
 	defer dd.Rdb.Close()
 	// var ctx = context.Background()
-	go df.LoadDirectory("./tabPages", AddHostToBase)
+
+	for {
+		err := df.LoadDirectory("./tabPages", AddHostToBase)
+		if err != nil {
+			fmt.Println(err)
+			time.Sleep(time.Second * 3)
+		} else {
+			break
+		}
+	}
+
 	go startPing()
 	startWeb()
 }
