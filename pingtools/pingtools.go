@@ -17,7 +17,6 @@ const (
 // 	stats.MinRtt, stats.AvgRtt, stats.MaxRtt, stats.StdDevRtt)
 
 func ProcessPing(addr string) (*ping.Statistics, error) {
-	// func ProcessPing(a *drivedb.Address) (*ping.Statistics, error) {
 	pinger, err := ping.NewPinger(addr)
 	// pinger, err := ping.NewPinger((*a).IP)
 	if err != nil {

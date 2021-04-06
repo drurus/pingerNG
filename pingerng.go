@@ -16,6 +16,8 @@ import (
 var (
 	file_index   string = "web/dist/index.html"
 	static_index string = "web/dist/"
+	worker_count int    = 10
+	delay_global int    = 3 // seconds
 )
 
 type WebAnswer struct {
@@ -83,6 +85,7 @@ func startPing() {
 
 			for _, hst := range hs.Hst {
 				fmt.Printf("\t\tping %s\n", hst.Name)
+
 				go func(hst dd.Host) {
 					ret, err := dp.ProcessPing(hst.Name)
 					if err != nil {
@@ -98,9 +101,60 @@ func startPing() {
 						fmt.Println(hst.Name, err.Error())
 					}
 				}(hst)
+
 			}
 		}()
 		<-time.After(time.Second * 15)
+	}
+}
+
+// workerPing процесс осуществляющий пинг
+func workerPing(id int, jobs <-chan dd.Host) {
+	// обработка паники (например не получен IP адрес)
+	// defer func() {
+	// 	if err := recover(); err != nil {
+	// 		fmt.Printf("wr %d: %s\n", id, err)
+	// 		// fmt.Printf("wr %d: %s %s\n", id, hst.Name, err)
+	// 	}
+	// }()
+
+	for hst := range jobs {
+		fmt.Printf("wr %d <- %s \n", id, hst.Name)
+		ret, err := dp.ProcessPing(hst.Name)
+		if err != nil {
+			fmt.Printf("wr %d: %s %s\n", id, hst.Name, err.Error())
+			continue // чтобы не дойти до паники
+		}
+		host := dd.NewHost(hst.Name)
+		host.IP = ret.IPAddr.String()
+		host.Stats = fmt.Sprintf("Loss %.2f%%\nRtt %s",
+			ret.PacketLoss,
+			ret.AvgRtt.Round(time.Millisecond).String())
+		host.Tab = hst.Tab
+		if err = host.UpdateRecordDB(); err != nil {
+			fmt.Printf("wr %d: %s %s\n", id, hst.Name, err.Error())
+		}
+	}
+}
+
+// startJobs запускает циклическое чтение хостов и передачу в канал заданий
+func startJobs(jobs chan dd.Host) {
+	// for {
+	// fmt.Printf("\n **************** Start a new cycle of jobs! ****************\n")
+	hs := dd.Hosts{}
+	if err := hs.GetAllHosts(); err != nil {
+		fmt.Println(err)
+		// continue
+	}
+
+	for {
+		fmt.Printf("\n **************** Start a new cycle of jobs! ****************\n")
+		for _, hst := range hs.Hst {
+			// fmt.Printf("%s -> jobs\n", hst.Name)
+			jobs <- hst
+		}
+		fmt.Printf("----- Global delay %d second -----\n", delay_global)
+		<-time.After(time.Duration(delay_global) * time.Second)
 	}
 }
 
@@ -108,6 +162,7 @@ func main() {
 	defer dd.Rdb.Close()
 	// var ctx = context.Background()
 
+	// крутит цикл чтения пока не заработает Redis
 	for {
 		err := df.LoadDirectory("./tabPages", AddHostToBase)
 		if err != nil {
@@ -118,6 +173,15 @@ func main() {
 		}
 	}
 
-	go startPing()
+	jobs := make(chan dd.Host, worker_count)
+
+	// создать пул воркеров
+	for w := 1; w <= worker_count; w++ {
+		go workerPing(w, jobs)
+	}
+
+	// запустить чтение ностов и создание заданий
+	go startJobs(jobs)
+	// go startPing()
 	startWeb()
 }
