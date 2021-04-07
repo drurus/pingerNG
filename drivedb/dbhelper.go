@@ -89,8 +89,8 @@ func (h *Host) AddRecordDB() error {
 	return nil
 }
 
-// rsk возвращает список по стат-ключу
-func (h *Host) rsk(key string) []string {
+// Rsk возвращает список по стат-ключу
+func (h *Host) Rsk(key string) []string {
 	sl := Rdb.LRange(ctx, key, 0, statsize-1)
 	if sl.Err() != nil {
 		return []string{}
@@ -150,8 +150,8 @@ func (h *Host) SaveStats(statkey string, sval []string) error {
 
 	realskey := (*h).Name + "_" + statkey
 	// загрузить // LRANGE 4.2.2.1_rtt 0 statsize-1
-	kk := (*h).rsk(realskey)
-	fmt.Println("-->> ", kk)
+	kk := (*h).Rsk(realskey)
+	// fmt.Println("-->> ", kk)
 	kk = append(kk, sval...)
 	// добавить // RPUSH 4.2.2.1_rtt "12.68"
 	if err := (*h).psk(realskey, kk); err != nil {

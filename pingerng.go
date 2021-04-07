@@ -4,6 +4,7 @@ import (
 	dd "drurus/drivedb"
 	df "drurus/drivefile"
 	dp "drurus/pingtools"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -23,6 +24,11 @@ var (
 type WebAnswer struct {
 	Data interface{} `json:"data"`
 	Err  string      `json:"err"`
+}
+
+type StatSt struct {
+	Key    string   `json:"skey"`
+	Values []string `json:"sval"`
 }
 
 // AddHostToBase создает и добавляет объекты Host в Redis
@@ -56,11 +62,42 @@ func loadPages(c echo.Context) error {
 		rsp.Err = err.Error()
 	}
 	// сделать подмену Stats (вместо списка ключей выдать значения)
-	// for _, host := range hs {
-	// 	host  := dd.Host{}
-	// 	host.Stats
-	// }
+	// 1) итерировать список хостов
+	// 2) получить список стат-ключей
+	// 3) загрузить из БД значения по стат-ключам, итерировать
+	// 4) заменить host.Stats структурами с данными
+	// oStat := make([]string, 0)
+	oStat := make([]StatSt, 0)
+	for i, host := range hs.Hst {
+		skeys := strings.Split(host.Stats, ",")
+		// перебор стат-ключей
+		for _, skey := range skeys {
+			// !! сформировать имя полного стат-ключа !!
+			realkey := host.Name + "_" + skey
+			// fmt.Println(skey, "===", host.Rsk(skey))
+			sk := &StatSt{
+				Key:    skey,
+				Values: host.Rsk(realkey),
+			}
+			// jst, err := json.Marshal(sk)
+			// if err != nil {
+			// 	return err
+			// }
+			// oStat = append(oStat, string(jst))
+			oStat = append(oStat, *sk)
+			// fmt.Println(oStat)
+		}
+		// host.Stats = string(oStat)
+		jst, err := json.Marshal(oStat)
+		if err != nil {
+			return err
+		}
+
+		hs.Hst[i].Stats = string(jst)
+		// fmt.Printf("%+v", host)
+	}
 	rsp.Data = hs
+	// fmt.Println("rsp     ", rsp)
 	return c.JSON(http.StatusOK, rsp)
 }
 
@@ -97,7 +134,7 @@ func workerPing(id int, jobs <-chan dd.Host) {
 		}
 		host := dd.NewHost(hst.Name)
 		host.IP = ret.IPAddr.String()
-		// TODO new stats - писать в свои ключи; далее набор ключей брать из конфига/web
+		// TODO new stats - набор ключей брать из конфига/web
 		host.Stats = "rtt,loss"
 
 		skeys := strings.Split(host.Stats, ",")
@@ -128,7 +165,7 @@ func startJobs(jobs chan dd.Host) {
 	// fmt.Printf("\n **************** Start a new cycle of jobs! ****************\n")
 	hs := dd.Hosts{}
 	if err := hs.GetAllHosts(); err != nil {
-		fmt.Println(err, "список загружен не полностью")
+		fmt.Println(err, " список загружен не полностью!")
 		// continue
 	}
 
