@@ -55,6 +55,11 @@ func loadPages(c echo.Context) error {
 	if err := hs.GetAllHosts(); err != nil {
 		rsp.Err = err.Error()
 	}
+	// сделать подмену Stats (вместо списка ключей выдать значения)
+	// for _, host := range hs {
+	// 	host  := dd.Host{}
+	// 	host.Stats
+	// }
 	rsp.Data = hs
 	return c.JSON(http.StatusOK, rsp)
 }
@@ -71,41 +76,6 @@ func startWeb() {
 	// e.GET("/ping/:host", makePingOnce)
 
 	e.Logger.Fatal(e.Start("127.0.0.1:6060"))
-}
-
-func startPing() {
-	for {
-		func() {
-
-			fmt.Println("startPing!")
-			hs := dd.Hosts{}
-			if err := hs.GetAllHosts(); err != nil {
-				fmt.Println(err)
-			}
-
-			for _, hst := range hs.Hst {
-				fmt.Printf("\t\tping %s\n", hst.Name)
-
-				go func(hst dd.Host) {
-					ret, err := dp.ProcessPing(hst.Name)
-					if err != nil {
-						fmt.Println(hst.Name, err.Error())
-					}
-					host := dd.NewHost(hst.Name)
-					host.IP = ret.IPAddr.String()
-					host.Stats = fmt.Sprintf("Loss %.2f%%\nRtt %s",
-						ret.PacketLoss,
-						ret.AvgRtt.Round(time.Millisecond).String())
-					host.Tab = hst.Tab
-					if err = host.UpdateRecordDB(); err != nil {
-						fmt.Println(hst.Name, err.Error())
-					}
-				}(hst)
-
-			}
-		}()
-		<-time.After(time.Second * 15)
-	}
 }
 
 // workerPing процесс осуществляющий пинг
@@ -127,9 +97,24 @@ func workerPing(id int, jobs <-chan dd.Host) {
 		}
 		host := dd.NewHost(hst.Name)
 		host.IP = ret.IPAddr.String()
-		host.Stats = fmt.Sprintf("Loss %.2f%%\nRtt %s",
-			ret.PacketLoss,
-			ret.AvgRtt.Round(time.Millisecond).String())
+		// TODO new stats - писать в свои ключи; далее набор ключей брать из конфига/web
+		host.Stats = "rtt,loss"
+
+		skeys := strings.Split(host.Stats, ",")
+		if len(skeys) > 0 {
+			for _, key := range skeys {
+				values := []string{}
+				switch key {
+				case "rtt":
+					values = append(values, fmt.Sprintf("%d", ret.AvgRtt.Round(time.Millisecond).Milliseconds()))
+				case "loss":
+					values = append(values, fmt.Sprintf("%.2f", ret.PacketLoss))
+				default:
+				}
+				host.SaveStats(key, values)
+			}
+		}
+
 		host.Tab = hst.Tab
 		if err = host.UpdateRecordDB(); err != nil {
 			fmt.Printf("wr %d: %s %s\n", id, hst.Name, err.Error())
@@ -143,7 +128,7 @@ func startJobs(jobs chan dd.Host) {
 	// fmt.Printf("\n **************** Start a new cycle of jobs! ****************\n")
 	hs := dd.Hosts{}
 	if err := hs.GetAllHosts(); err != nil {
-		fmt.Println(err)
+		fmt.Println(err, "список загружен не полностью")
 		// continue
 	}
 
@@ -182,6 +167,5 @@ func main() {
 
 	// запустить чтение ностов и создание заданий
 	go startJobs(jobs)
-	// go startPing()
 	startWeb()
 }

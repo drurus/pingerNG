@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/go-redis/redis/v8"
@@ -15,7 +16,8 @@ var (
 )
 
 const (
-	poolsize = 100
+	poolsize = 100 // размер пула для чтения из БД
+	statsize = 100 // кол-во сохраняемых значений статистики
 )
 
 func init() {
@@ -87,6 +89,81 @@ func (h *Host) AddRecordDB() error {
 	return nil
 }
 
+// rsk возвращает список по стат-ключу
+func (h *Host) rsk(key string) []string {
+	sl := Rdb.LRange(ctx, key, 0, statsize-1)
+	if sl.Err() != nil {
+		return []string{}
+	}
+	if sval, err := sl.Result(); err != nil {
+		return []string{}
+	} else {
+		return sval
+	}
+}
+
+// psk записывает список по стат-ключу
+func (h *Host) psk(key string, vals []string) error {
+	r := Rdb.RPush(ctx, key, vals)
+	if r.Err() != nil {
+		return r.Err()
+	}
+	if _, err := r.Result(); err != nil {
+		return err
+	} else {
+		return nil
+	}
+}
+
+// tsk обрезает список по стат-ключу
+func (h *Host) tsk(key string) error {
+	sl := Rdb.LTrim(ctx, key, 0, statsize-1)
+	if sl.Err() != nil {
+		return sl.Err()
+	}
+	if _, err := sl.Result(); err != nil {
+		return err
+	} else {
+		return nil
+	}
+}
+
+// SaveStats сохраняет списки статистики
+//  Host.Stats должна содержать статистические ключи
+func (h *Host) SaveStats(statkey string, sval []string) error {
+	// -1) получить и распарсить доступные стат-ключи
+	// 2) загрузить из БД значения стат-ключей RPUSH, LTRIM, LRANGE
+	// 3) сохранить/добавить новые значения
+	skeys := strings.Split((*h).Stats, ",")
+	flagapply := false // доступность ключа
+	for _, key := range skeys {
+		if statkey == key {
+			flagapply = true
+		}
+	}
+	if !flagapply {
+		return fmt.Errorf("\tkey %q is not avaliable\n", statkey)
+	}
+	// if len(skeys) <= 0 {
+	// 	return nil
+	// }
+
+	realskey := (*h).Name + "_" + statkey
+	// загрузить // LRANGE 4.2.2.1_rtt 0 statsize-1
+	kk := (*h).rsk(realskey)
+	fmt.Println("-->> ", kk)
+	kk = append(kk, sval...)
+	// добавить // RPUSH 4.2.2.1_rtt "12.68"
+	if err := (*h).psk(realskey, kk); err != nil {
+		return err
+	}
+	// обрезать // LTRIM 4.2.2.1_rtt 0 statsize-1
+	if err := (*h).tsk(realskey); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (h *Host) UpdateRecordDB() error {
 	var mtx sync.RWMutex
 	r := Rdb.HExists(ctx, (*h).Name, "Name")
@@ -118,6 +195,13 @@ func (hs *Hosts) Add(h Host) {
 
 // GetAllHosts читает Redis и заполняет срез объектами Host
 func (hs *Hosts) GetAllHosts() error {
+	// обработка паники (например не получен IP адрес)
+	defer func() {
+		if err := recover(); err != nil {
+			fmt.Printf("ошибка обработки хоста: %s\n", err)
+		}
+	}()
+
 	var cursor uint64
 	for {
 		var keys []string
@@ -127,6 +211,14 @@ func (hs *Hosts) GetAllHosts() error {
 			return err
 		}
 		for _, key := range keys {
+
+			// если ключ статистики - пропустить
+			ok := checkKeyAsStats(key)
+			if ok {
+				// fmt.Printf("\tStatistics key: %s\n", statkey)
+				continue
+			}
+
 			host := NewHost(key)
 			if err := host.GetRecordDB(); err != nil {
 				return err
@@ -140,12 +232,21 @@ func (hs *Hosts) GetAllHosts() error {
 	return nil
 }
 
+// checkKeyAsStats проверяет ключ на соответствие ключу статистики
+func checkKeyAsStats(s string) bool {
+	spl := strings.Split(s, "_")
+	if len(spl) == 2 {
+		return true
+	}
+	return false
+}
+
 func NewHost(address string) Host {
 	return Host{
 		Name:  address,
 		IP:    "",
 		IsUse: false,
-		Stats: "",
+		Stats: "loss,rtt", // ключи статистики по умолчанию
 		Tab:   "",
 	}
 }

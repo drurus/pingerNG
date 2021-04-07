@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	ping_count = 3
+	ping_count = 7
 )
 
 // fmt.Printf("\n--- %s ping statistics ---\n", stats.Addr)
