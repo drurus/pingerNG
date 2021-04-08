@@ -2,10 +2,12 @@ package drivedb
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-redis/redis/v8"
 )
@@ -16,8 +18,9 @@ var (
 )
 
 const (
-	poolsize = 100 // размер пула для чтения из БД
-	statsize = 100 // кол-во сохраняемых значений статистики
+	poolsize    = 100        // размер пула для чтения из БД
+	statsize    = 75         // кол-во сохраняемых значений статистики
+	Sk_template = "loss,rtt" // список стат-ключей
 )
 
 func init() {
@@ -28,8 +31,15 @@ type Host struct {
 	Name  string `json:"name"`  // hostname
 	IP    string `json:"ip"`    // адрес
 	IsUse bool   `json:"isuse"` // флаг обработки, 0 - false
-	Stats string `json:"stats"` // результат обработки
-	Tab   string `json:"tab"`   // имя таба
+	Stats []Stat `json:"stats"` // результат обработки
+	// Stats string `json:"stats"` // результат обработки
+	Tab string `json:"tab"` // имя таба
+}
+
+type Stat struct {
+	Type   string    `json:"type"`
+	Values []float64 `json:"values"`
+	// Values []string `json:"values"`
 }
 
 type Hosts struct {
@@ -41,13 +51,29 @@ type Hosts struct {
 // 	Err  string `json:"err"`
 // }
 
+func statsToString(s *[]Stat) string {
+	// Marshal
+	st := *s
+	var sout []byte
+	for _, stat := range st {
+		js, err := json.Marshal(stat)
+		if err != nil {
+			fmt.Printf("\terror convert Stat to String: %s\n", err)
+			return ""
+		}
+		sout = append(sout, js...)
+	}
+	return string(sout)
+}
+
 // ToStrings выводит структуру Host как []string
 func (h *Host) ToStrings() []string {
 	sc := make([]string, 0)
 	sc = append(sc, "Name", h.Name)
 	sc = append(sc, "IP", h.IP)
 	sc = append(sc, "IsUse", strconv.FormatBool((h.IsUse)))
-	sc = append(sc, "Stats", h.Stats)
+	sc = append(sc, "Stats", statsToString(&h.Stats))
+	// sc = append(sc, "Stats", h.Stats)
 	sc = append(sc, "Tab", h.Tab)
 	return sc
 }
@@ -62,7 +88,7 @@ func (h *Host) GetRecordDB() error {
 	(*h).Name = hh["Name"]
 	(*h).IP = hh["IP"]
 	(*h).IsUse, err = strconv.ParseBool(hh["IsUse"])
-	(*h).Stats = hh["Stats"]
+	//-	(*h).Stats = hh["Stats"]
 	(*h).Tab = hh["Tab"]
 	if err != nil {
 		return err
@@ -90,25 +116,36 @@ func (h *Host) AddRecordDB() error {
 }
 
 // Rsk возвращает список по стат-ключу
-func (h *Host) Rsk(key string) []string {
+func (h *Host) Rsk(key string) []float64 {
+	// func (h *Host) Rsk(key string) []string {
 	sl := Rdb.LRange(ctx, key, 0, statsize-1)
 	if sl.Err() != nil {
-		return []string{}
+		return []float64{}
 	}
 	if sval, err := sl.Result(); err != nil {
-		return []string{}
+		return []float64{}
 	} else {
-		return sval
+		// return sval
+		var sfval []float64
+		for _, val := range sval {
+			if conv, err := strconv.ParseFloat(val, 64); err != nil {
+				sfval = append(sfval, 0.0)
+			} else {
+				sfval = append(sfval, conv)
+			}
+		}
+		return sfval
 	}
 }
 
 // psk записывает список по стат-ключу
 func (h *Host) psk(key string, vals []string) error {
-	r := Rdb.RPush(ctx, key, vals)
+	r := Rdb.LPush(ctx, key, vals)
 	if r.Err() != nil {
 		return r.Err()
 	}
 	if _, err := r.Result(); err != nil {
+		fmt.Printf("error PUSH %s %q: %s", key, vals, err)
 		return err
 	} else {
 		return nil
@@ -117,6 +154,7 @@ func (h *Host) psk(key string, vals []string) error {
 
 // tsk обрезает список по стат-ключу
 func (h *Host) tsk(key string) error {
+	// sl := Rdb.LTrim(ctx, key, 1, statsize)
 	sl := Rdb.LTrim(ctx, key, 0, statsize-1)
 	if sl.Err() != nil {
 		return sl.Err()
@@ -134,7 +172,9 @@ func (h *Host) SaveStats(statkey string, sval []string) error {
 	// -1) получить и распарсить доступные стат-ключи
 	// 2) загрузить из БД значения стат-ключей RPUSH, LTRIM, LRANGE
 	// 3) сохранить/добавить новые значения
-	skeys := strings.Split((*h).Stats, ",")
+	// fmt.Printf("\n------SaveStats for %s: statkey: %s, sval: %v\n", *&h.Name, statkey, sval)
+	skeys := strings.Split(Sk_template, ",")
+	// skeys := strings.Split((*h).Stats, ",")
 	flagapply := false // доступность ключа
 	for _, key := range skeys {
 		if statkey == key {
@@ -149,12 +189,24 @@ func (h *Host) SaveStats(statkey string, sval []string) error {
 	// }
 
 	realskey := (*h).Name + "_" + statkey
+	// fmt.Println("realskey: ", realskey)
 	// загрузить // LRANGE 4.2.2.1_rtt 0 statsize-1
 	kk := (*h).Rsk(realskey)
 	// fmt.Println("-->> ", kk)
-	kk = append(kk, sval...)
+	var skk []string
+	for _, val := range kk {
+		skk = append(skk, strconv.FormatFloat(val, 'f', 2, 64))
+	}
+	// fmt.Printf("SKK: %s; SVAL: %s\n", skk, sval)
+
+	// TODO skk = append(sval, skk...)
+
+	// fmt.Println("SKK append: ", skk)
+	// kk = append(kk, sval...)
 	// добавить // RPUSH 4.2.2.1_rtt "12.68"
-	if err := (*h).psk(realskey, kk); err != nil {
+	if err := (*h).psk(realskey, sval); err != nil {
+		// if err := (*h).psk(realskey, skk); err != nil {
+		// if err := (*h).psk(realskey, kk); err != nil {
 		return err
 	}
 	// обрезать // LTRIM 4.2.2.1_rtt 0 statsize-1
@@ -246,17 +298,26 @@ func NewHost(address string) Host {
 		Name:  address,
 		IP:    "",
 		IsUse: false,
-		Stats: "loss,rtt", // ключи статистики по умолчанию
+		// Stats: "loss,rtt", // ключи статистики по умолчанию
+		Stats: []Stat{}, // ключи статистики по умолчанию
 		Tab:   "",
 	}
 }
 
 // InitRedis инициализация Redis
 func InitRedis(ctx context.Context) *redis.Client {
-	fmt.Println("init DB")
-	return redis.NewClient(&redis.Options{
+	fmt.Print("init DB ...")
+	r := redis.NewClient(&redis.Options{
 		Addr:     "localhost:6379",
 		Password: "",
 		DB:       0,
 	})
+	for {
+		_, err := r.Ping(ctx).Result()
+		if err == nil {
+			fmt.Print("OK")
+			return r
+		}
+		<-time.After(time.Millisecond * 750)
+	}
 }

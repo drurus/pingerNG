@@ -4,7 +4,6 @@ import (
 	dd "drurus/drivedb"
 	df "drurus/drivefile"
 	dp "drurus/pingtools"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -26,10 +25,10 @@ type WebAnswer struct {
 	Err  string      `json:"err"`
 }
 
-type StatSt struct {
-	Key    string   `json:"skey"`
-	Values []string `json:"sval"`
-}
+// type StatSt struct {
+// 	Key    string   `json:"skey"`
+// 	Values []string `json:"sval"`
+// }
 
 // AddHostToBase создает и добавляет объекты Host в Redis
 //  Вспомогательная функция
@@ -67,37 +66,21 @@ func loadPages(c echo.Context) error {
 	// 3) загрузить из БД значения по стат-ключам, итерировать
 	// 4) заменить host.Stats структурами с данными
 	// oStat := make([]string, 0)
-	oStat := make([]StatSt, 0)
+	skeys := strings.Split(dd.Sk_template, ",")
 	for i, host := range hs.Hst {
-		skeys := strings.Split(host.Stats, ",")
+		oStat := make([]dd.Stat, 0)
 		// перебор стат-ключей
 		for _, skey := range skeys {
 			// !! сформировать имя полного стат-ключа !!
 			realkey := host.Name + "_" + skey
-			// fmt.Println(skey, "===", host.Rsk(skey))
-			sk := &StatSt{
-				Key:    skey,
-				Values: host.Rsk(realkey),
-			}
-			// jst, err := json.Marshal(sk)
-			// if err != nil {
-			// 	return err
-			// }
-			// oStat = append(oStat, string(jst))
-			oStat = append(oStat, *sk)
-			// fmt.Println(oStat)
-		}
-		// host.Stats = string(oStat)
-		jst, err := json.Marshal(oStat)
-		if err != nil {
-			return err
+			sk := dd.Stat{Type: skey, Values: host.Rsk(realkey)}
+			oStat = append(oStat, sk)
 		}
 
-		hs.Hst[i].Stats = string(jst)
-		// fmt.Printf("%+v", host)
+		hs.Hst[i].Stats = oStat
 	}
 	rsp.Data = hs
-	// fmt.Println("rsp     ", rsp)
+	// fmt.Printf("%+v", rsp)
 	return c.JSON(http.StatusOK, rsp)
 }
 
@@ -108,9 +91,6 @@ func startWeb() {
 	e.Static("/", static_index)
 	// e.File("/", file_index)
 	e.GET("/loadPages", loadPages)
-	// e.GET("/getTabPages", getTabPages)
-	// e.GET("/readStats", readStats) // get all data from Redis
-	// e.GET("/ping/:host", makePingOnce)
 
 	e.Logger.Fatal(e.Start("127.0.0.1:6060"))
 }
@@ -126,7 +106,7 @@ func workerPing(id int, jobs <-chan dd.Host) {
 	// }()
 
 	for hst := range jobs {
-		fmt.Printf("wr %d <- %s \n", id, hst.Name)
+		// fmt.Printf("wr %d <- %s \n", id, hst.Name)
 		ret, err := dp.ProcessPing(hst.Name)
 		if err != nil {
 			fmt.Printf("wr %d: %s %s\n", id, hst.Name, err.Error())
@@ -135,9 +115,10 @@ func workerPing(id int, jobs <-chan dd.Host) {
 		host := dd.NewHost(hst.Name)
 		host.IP = ret.IPAddr.String()
 		// TODO new stats - набор ключей брать из конфига/web
-		host.Stats = "rtt,loss"
+		// host.Stats = "rtt,loss"
+		host.Stats = []dd.Stat{}
 
-		skeys := strings.Split(host.Stats, ",")
+		skeys := strings.Split(dd.Sk_template, ",")
 		if len(skeys) > 0 {
 			for _, key := range skeys {
 				values := []string{}
@@ -148,6 +129,7 @@ func workerPing(id int, jobs <-chan dd.Host) {
 					values = append(values, fmt.Sprintf("%.2f", ret.PacketLoss))
 				default:
 				}
+				// fmt.Println("------ VALUES", values)
 				host.SaveStats(key, values)
 			}
 		}
@@ -175,8 +157,8 @@ func startJobs(jobs chan dd.Host) {
 			// fmt.Printf("%s -> jobs\n", hst.Name)
 			jobs <- hst
 		}
-		fmt.Printf("----- Global delay %d second -----\n", delay_global)
-		<-time.After(time.Duration(delay_global) * time.Second)
+		// fmt.Printf("----- Global delay %d second -----\n", delay_global)
+		// <-time.After(time.Duration(delay_global) * time.Second)
 	}
 }
 
@@ -202,7 +184,7 @@ func main() {
 		go workerPing(w, jobs)
 	}
 
-	// запустить чтение ностов и создание заданий
+	// запустить чтение хостов и создание заданий
 	go startJobs(jobs)
 	startWeb()
 }
