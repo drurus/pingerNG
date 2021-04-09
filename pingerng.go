@@ -19,6 +19,7 @@ var (
 	static_index string = "web/dist/"
 	worker_count int    //= 0 //count
 	delay_global int    //= 0 // seconds
+	separator    string
 )
 
 type WebAnswer struct {
@@ -68,9 +69,10 @@ func loadPages(c echo.Context) error {
 		// перебор стат-ключей
 		for _, skey := range skeys {
 			// !! сформировать имя полного стат-ключа !!
-			realkey := host.Name + "_" + skey
+			realkey := host.Name + separator + skey
 			sk := dd.Stat{Type: skey, Values: host.Rsk(realkey)}
 			oStat = append(oStat, sk)
+			// fmt.Printf("For %s prep %v\n", host.Name, sk)
 		}
 
 		hs.Hst[i].Stats = oStat
@@ -86,9 +88,16 @@ func startWeb() {
 
 	e.Static("/", static_index)
 	// e.File("/", file_index)
-	e.GET("/loadPages", loadPages)
+	go e.GET("/loadPages", loadPages)
 
-	e.Logger.Fatal(e.Start("127.0.0.1:6060"))
+	s := &http.Server{
+		Addr:         "127.0.0.1:6060",
+		ReadTimeout:  20 * time.Minute,
+		WriteTimeout: 20 * time.Minute,
+	}
+	e.Debug = true
+	e.Logger.Fatal(e.StartServer(s))
+	// e.Logger.Fatal(e.Start("127.0.0.1:6060"))
 }
 
 // workerPing процесс осуществляющий пинг
@@ -106,7 +115,7 @@ func workerPing(id int, jobs <-chan dd.Host) {
 		ret, err := dp.ProcessPing(hst.Name)
 		if err != nil {
 			fmt.Printf("wr %d: %s %s\n", id, hst.Name, err.Error())
-			continue // чтобы не дойти до паники
+			// continue // чтобы не дойти до паники
 		}
 		host := dd.NewHost(hst.Name)
 		host.IP = ret.IPAddr.String()
@@ -126,6 +135,9 @@ func workerPing(id int, jobs <-chan dd.Host) {
 				default:
 				}
 				// fmt.Println("------ VALUES", values)
+				if values == nil {
+					fmt.Println("-------NIIL")
+				}
 				host.SaveStats(key, values)
 			}
 		}
@@ -169,6 +181,7 @@ func main() {
 	fmt.Println(cnf)
 	worker_count = int(cnf.WorkerCount)
 	delay_global = int(cnf.DelayGlobal)
+	separator = cnf.Separator
 	fmt.Println(worker_count, delay_global)
 
 	// var ctx = context.Background()

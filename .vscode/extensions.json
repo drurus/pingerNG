@@ -4,6 +4,7 @@
         "ms-vscode-remote.remote-containers",
         "ms-vscode-remote.vscode-remote-extensionpack",
         "cweijan.vscode-database-client2",
-        "jebbs.plantuml"
+        "jebbs.plantuml",
+        "mohsen1.prettify-json"
     ]
 }

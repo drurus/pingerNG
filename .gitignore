@@ -26,3 +26,6 @@ pnpm-debug.log*
 *.sw?
 .gitignore
 __debug_bin
+dist/pingerng
+dist/pingerng.tgz
+dist

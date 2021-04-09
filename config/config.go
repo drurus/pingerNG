@@ -14,6 +14,7 @@ import (
 type PingerCnf struct {
 	WorkerCount uint32
 	DelayGlobal uint32
+	Separator   string
 }
 
 type Config struct {
@@ -59,6 +60,7 @@ func ConfigLoad() (*Config, error) {
 		PingerCnf{
 			WorkerCount: uint32(getEnvAsInt("WORKER_COUNT", 10)),
 			DelayGlobal: uint32(getEnvAsInt("DELAY_GLOBAL", 0)),
+			Separator:   getEnv("SEPARATOR", "++"),
 		},
 	}, nil
 }

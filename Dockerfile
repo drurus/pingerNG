@@ -23,5 +23,5 @@ COPY ./pingerng ./
 COPY ./tabPages ./tabPages
 COPY ./web/dist ./web/dist
 CMD ["./pingerng"]
-LABEL Name=pingerng Version=0.0.1
+LABEL Name=pingerng Version=0.0.3
 EXPOSE 6060

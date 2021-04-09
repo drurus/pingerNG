@@ -20,14 +20,17 @@ func ProcessPing(addr string) (*ping.Statistics, error) {
 	pinger, err := ping.NewPinger(addr)
 	// pinger, err := ping.NewPinger((*a).IP)
 	if err != nil {
-		return nil, err
+		return &ping.Statistics{
+			PacketLoss: 100,
+		}, err
+		// return &ping.Statistics{}, err
 	}
 	pinger.Count = ping_count
 	pinger.Timeout = time.Millisecond * ping_count * 1500
 	pinger.SetPrivileged(true)
 	err = pinger.Run()
 	if err != nil {
-		return nil, err
+		return pinger.Statistics(), err
 	}
 	return pinger.Statistics(), nil
 }

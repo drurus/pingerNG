@@ -2,6 +2,7 @@ package drivedb
 
 import (
 	"context"
+	"drurus/config"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -13,8 +14,9 @@ import (
 )
 
 var (
-	ctx = context.Background()
-	Rdb *redis.Client
+	ctx       = context.Background()
+	Rdb       *redis.Client
+	separator string
 )
 
 const (
@@ -25,6 +27,13 @@ const (
 
 func init() {
 	Rdb = InitRedis(ctx)
+
+	cnf, err := config.ConfigLoad()
+	if err != nil {
+		fmt.Println("ERROR:", err)
+		return
+	}
+	separator = cnf.Separator
 }
 
 type Host struct {
@@ -188,7 +197,7 @@ func (h *Host) SaveStats(statkey string, sval []string) error {
 	// 	return nil
 	// }
 
-	realskey := (*h).Name + "_" + statkey
+	realskey := (*h).Name + separator + statkey
 	// fmt.Println("realskey: ", realskey)
 	// загрузить // LRANGE 4.2.2.1_rtt 0 statsize-1
 	kk := (*h).Rsk(realskey)
@@ -286,7 +295,7 @@ func (hs *Hosts) GetAllHosts() error {
 
 // checkKeyAsStats проверяет ключ на соответствие ключу статистики
 func checkKeyAsStats(s string) bool {
-	spl := strings.Split(s, "_")
+	spl := strings.Split(s, separator)
 	if len(spl) == 2 {
 		return true
 	}
