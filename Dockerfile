@@ -18,6 +18,7 @@
 FROM alpine:latest
 RUN apk --no-cache add ca-certificates
 WORKDIR /app
+COPY ./.env ./
 COPY ./pingerng ./
 COPY ./tabPages ./tabPages
 COPY ./web/dist ./web/dist

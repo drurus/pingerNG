@@ -1,6 +1,7 @@
 package main
 
 import (
+	"drurus/config"
 	dd "drurus/drivedb"
 	df "drurus/drivefile"
 	dp "drurus/pingtools"
@@ -16,19 +17,14 @@ import (
 var (
 	file_index   string = "web/dist/index.html"
 	static_index string = "web/dist/"
-	worker_count int    = 10
-	delay_global int    = 3 // seconds
+	worker_count int    //= 0 //count
+	delay_global int    //= 0 // seconds
 )
 
 type WebAnswer struct {
 	Data interface{} `json:"data"`
 	Err  string      `json:"err"`
 }
-
-// type StatSt struct {
-// 	Key    string   `json:"skey"`
-// 	Values []string `json:"sval"`
-// }
 
 // AddHostToBase создает и добавляет объекты Host в Redis
 //  Вспомогательная функция
@@ -158,12 +154,23 @@ func startJobs(jobs chan dd.Host) {
 			jobs <- hst
 		}
 		// fmt.Printf("----- Global delay %d second -----\n", delay_global)
-		// <-time.After(time.Duration(delay_global) * time.Second)
+		<-time.After(time.Duration(delay_global) * time.Second)
 	}
 }
 
 func main() {
 	defer dd.Rdb.Close()
+
+	cnf, err := config.ConfigLoad()
+	if err != nil {
+		fmt.Println("ERROR:", err)
+		return
+	}
+	fmt.Println(cnf)
+	worker_count = int(cnf.WorkerCount)
+	delay_global = int(cnf.DelayGlobal)
+	fmt.Println(worker_count, delay_global)
+
 	// var ctx = context.Background()
 
 	// крутит цикл чтения пока не заработает Redis

@@ -315,7 +315,7 @@ func InitRedis(ctx context.Context) *redis.Client {
 	for {
 		_, err := r.Ping(ctx).Result()
 		if err == nil {
-			fmt.Print("OK")
+			fmt.Println("OK")
 			return r
 		}
 		<-time.After(time.Millisecond * 750)
